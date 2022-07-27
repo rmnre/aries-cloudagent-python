@@ -6,8 +6,9 @@ from typing import Union
 from aiohttp import ClientSession, DummyCookieJar
 
 from ...core.profile import Profile
+from ...protocols.px_over_http.v0_1.message_types import ARIES_PROTOCOL as PXHTTP_PROTO
 
-from .base import BaseOutboundTransport
+from .base import BaseOutboundTransport, OutboundTransportError
 
 
 class WsTransport(BaseOutboundTransport):
@@ -37,6 +38,7 @@ class WsTransport(BaseOutboundTransport):
         payload: Union[str, bytes],
         endpoint: str,
         metadata: dict = None,
+        protocol: str = None,
         api_key: str = None,
     ):
         """
@@ -48,6 +50,9 @@ class WsTransport(BaseOutboundTransport):
             endpoint: URI endpoint for delivery
             metadata: Additional metadata associated with the payload
         """
+        if protocol == PXHTTP_PROTO:
+            raise OutboundTransportError("px-over-http via WS is not supported")
+
         # aiohttp should automatically handle websocket sessions
         async with self.client_session.ws_connect(endpoint, headers=metadata) as ws:
             if isinstance(payload, bytes):

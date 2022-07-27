@@ -8,24 +8,27 @@ apply_requirement [filter credentials] ->
 merge [return applicable credential list and descriptor_map for presentation_submission]
 returns VerifiablePresentation
 """
+import json
 import pytz
 import re
 import logging
 
-from datetime import datetime
+from datetime import datetime, timezone
 from dateutil.parser import parse as dateutil_parser
 from dateutil.parser import ParserError
 from jsonpath_ng import parse
 from pyld import jsonld
 from pyld.jsonld import JsonLdProcessor
-from typing import Sequence, Optional, Tuple, Union, Dict, List
+from typing import Mapping, Sequence, Optional, Tuple, Union, Dict, List
 from unflatten import unflatten
 from uuid import uuid4
+from aries_cloudagent.config.base import InjectionError
 
 from ....core.error import BaseError
 from ....core.profile import Profile
 from ....did.did_key import DIDKey
 from ....storage.vc_holder.vc_record import VCRecord
+from ....wallet.util import bytes_to_b64, str_to_b64
 from ....vc.ld_proofs import (
     Ed25519Signature2018,
     BbsBlsSignature2020,
@@ -1122,7 +1125,7 @@ class DIFPresExchHandler:
         nested_result = []
         cred_uid_descriptors = {}
         # recursion logic for nested requirements
-        for requirement in req.nested_req:
+        for requirement in req.nested_req or []:
             # recursive call
             result = await self.apply_requirements(
                 requirement, credentials, records_filter
@@ -1303,6 +1306,16 @@ class DIFPresExchHandler:
         vp["presentation_submission"] = submission_property.serialize()
         if self.proof_type is BbsBlsSignature2020.signature_type:
             vp["@context"].append(SECURITY_CONTEXT_BBS_URL)
+        elif (
+            self.proof_type is Ed25519Signature2018.signature_type
+            and pd.fmt
+            and pd.fmt.jwt_vp
+            and not pd.fmt.ldp_vp
+        ):
+            return await self.create_jwt_vp(
+                pres=vp, issuer_id=issuer_id, challenge=challenge, domain=domain
+            )
+
         async with self.profile.session() as session:
             wallet = session.inject(BaseWallet)
             issue_suite = await self._get_issue_suite(
@@ -1590,3 +1603,70 @@ class DIFPresExchHandler:
                 )
             )
         return nested_field_paths
+
+    async def create_jwt_vp(
+        self,
+        pres: Mapping,
+        issuer_id: str,
+        challenge: str,
+        domain: str,
+    ) -> dict:
+        """
+        Create a jwt_vp.
+
+        Args:
+            pres: Unsigned Presentation
+            challenge: random seed provided by the Verifier
+        """
+        # W3C encoding rules currently allow for one credential only
+        # cred = pres.get("verifiableCredential")[0]
+        # issuer_did = cred.get("credentialSubject").get("id")
+        # iss_date = str_to_epoch(cred.get("issuanceDate"))
+        now = int(datetime.now(timezone.utc).timestamp())
+        # TODO: base on self.proof_type?
+        header = {"alg": "EdDSA", "kid": issuer_id, "typ": "JWT"}
+        payload = {
+            "iss": issuer_id,
+            "sub": issuer_id,
+            "nbf": now,
+            "iat": now,
+            # TODO: should expirationDate be taken into account at all?
+            # "exp": (
+            #     str_to_epoch(cred.get("expirationDate"))
+            #     if cred.get("expirationDate")
+            #     else now + 36000
+            # ),
+            "exp": now + 36000,
+            "nonce": challenge,
+            "vp": pres,
+        }
+        if domain:
+            payload.update({"aud": domain})
+        if "id" in pres:
+            payload.update({"jti": pres.get("id")})
+
+        header_b64url, payload_b64url = (
+            str_to_b64(json.dumps(x), urlsafe=True, pad=False)
+            for x in (header, payload)
+        )
+        unsigned = f"{header_b64url}.{payload_b64url}"
+
+        try:
+            async with self.profile.session() as session:
+                wallet = session.inject(BaseWallet)
+                did_info: DIDInfo = await wallet.get_local_did(issuer_id)
+                sig_bytes = await wallet.sign_message(
+                    message=unsigned.encode("ascii"), from_verkey=did_info.verkey
+                )
+        except (WalletError, InjectionError):
+            raise DIFPresExchError("No wallet available")
+
+        sig_b64url = bytes_to_b64(sig_bytes, urlsafe=True, pad=False)
+        return {
+            "base64": payload_b64url,
+            "jws": {
+                "header": header,
+                "protected": header_b64url,
+                "signature": sig_b64url,
+            },
+        }

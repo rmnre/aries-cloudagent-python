@@ -16,6 +16,7 @@ from ....storage.error import StorageError, StorageNotFoundError
 
 from ...didcomm_prefix import DIDCommPrefix
 from ...didexchange.v1_0.manager import DIDXManagerError
+from ...px_over_http.v0_1.manager import PXHTTPManagerError
 
 from .manager import OutOfBandManager, OutOfBandManagerError
 from .messages.invitation import HSProto, InvitationMessage, InvitationMessageSchema
@@ -243,7 +244,7 @@ async def invitation_receive(request: web.BaseRequest):
             use_existing_connection=use_existing_conn,
             mediation_id=mediation_id,
         )
-    except (DIDXManagerError, StorageError, BaseModelError) as err:
+    except (DIDXManagerError, PXHTTPManagerError, StorageError, BaseModelError) as err:
         raise web.HTTPBadRequest(reason=err.roll_up) from err
 
     return web.json_response(result.serialize())

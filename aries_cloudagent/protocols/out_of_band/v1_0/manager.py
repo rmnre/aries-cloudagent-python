@@ -32,6 +32,11 @@ from ...issue_credential.v1_0.models.credential_exchange import V10CredentialExc
 from ...issue_credential.v2_0.models.cred_ex_record import V20CredExRecord
 from ...present_proof.v1_0.models.presentation_exchange import V10PresentationExchange
 from ...present_proof.v2_0.models.pres_exchange import V20PresExRecord
+from ...px_over_http.v0_1.manager import PXHTTPManager
+from ...px_over_http.v0_1.message_types import (
+    PROTOCOL_PREFIX_URI as PXHTTP_PROTO_PREFIX,
+)
+
 from .messages.invitation import HSProto, InvitationMessage
 from .messages.problem_report import OOBProblemReport
 from .messages.reuse import HandshakeReuse
@@ -457,6 +462,7 @@ class OutOfBandManager(BaseConnectionManager):
             except StorageNotFoundError:
                 mediation_id = None
 
+        # TODO: To allow for protocol negotiation, this restriction must be lifted
         # There must be exactly 1 service entry
         if len(invitation.services) != 1:
             raise OutOfBandManagerError("service array must have exactly one element")
@@ -789,7 +795,9 @@ class OutOfBandManager(BaseConnectionManager):
             HSProto.get(hsp)
             for hsp in dict.fromkeys(
                 [
-                    DIDCommPrefix.unqualify(proto)
+                    proto.split(f"{PXHTTP_PROTO_PREFIX}/")[1]
+                    if proto.startswith(f"{PXHTTP_PROTO_PREFIX}/")
+                    else DIDCommPrefix.unqualify(proto)
                     for proto in invitation.handshake_protocols
                 ]
             )
@@ -865,6 +873,16 @@ class OutOfBandManager(BaseConnectionManager):
                 conn_mgr = ConnectionManager(self.profile)
                 conn_record = await conn_mgr.receive_invitation(
                     invitation=connection_invitation,
+                    their_public_did=public_did,
+                    auto_accept=auto_accept,
+                    alias=alias,
+                    mediation_id=mediation_id,
+                )
+                break
+            elif protocol is HSProto.RFC999:
+                pxhttp_mgr = PXHTTPManager(self.profile)
+                conn_record = await pxhttp_mgr.receive_invitation(
+                    invitation=invitation,
                     their_public_did=public_did,
                     auto_accept=auto_accept,
                     alias=alias,

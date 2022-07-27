@@ -51,6 +51,14 @@ class TestConnRecord(AsyncTestCase):
             ConnRecord.Protocol.get(ConnRecord.Protocol.RFC_0160)
             is ConnRecord.Protocol.RFC_0160
         )
+        # TODO: replace dummy protocol name
+        assert (
+            ConnRecord.Protocol.get("px-over-http/0.1") is ConnRecord.Protocol.RFC_0999
+        )
+        assert (
+            ConnRecord.Protocol.get(ConnRecord.Protocol.RFC_0999)
+            is ConnRecord.Protocol.RFC_0999
+        )
 
     async def test_get_enums(self):
         assert ConnRecord.Role.get("Larry") is None

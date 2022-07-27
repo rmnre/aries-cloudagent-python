@@ -85,5 +85,7 @@ class ServiceSchema(BaseModelSchema):
 
         if "routingKeys" in data and not data["routingKeys"]:
             del data["routingKeys"]
+        if "recipientKeys" in data and not data["recipientKeys"]:
+            del data["recipientKeys"]
 
         return data

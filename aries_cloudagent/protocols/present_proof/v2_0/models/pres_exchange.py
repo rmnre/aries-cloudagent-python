@@ -68,6 +68,7 @@ class V20PresExRecord(BaseExchangeRecord):
         error_msg: str = None,
         trace: bool = False,  # backward compat: BaseRecord.FromStorage()
         by_format: Mapping = None,  # backward compat: BaseRecord.FromStorage()
+        pxhttp_session: str = None,
         **kwargs,
     ):
         """Initialize a new PresExRecord."""
@@ -85,6 +86,7 @@ class V20PresExRecord(BaseExchangeRecord):
         self.auto_present = auto_present
         self.auto_verify = auto_verify
         self.error_msg = error_msg
+        self.pxhttp_session = pxhttp_session
 
     @property
     def pres_ex_id(self) -> str:
@@ -198,6 +200,7 @@ class V20PresExRecord(BaseExchangeRecord):
                     "auto_verify",
                     "error_msg",
                     "trace",
+                    "pxhttp_session",
                 )
             },
             **{
@@ -327,4 +330,7 @@ class V20PresExRecordSchema(BaseExchangeSchema):
     )
     error_msg = fields.Str(
         required=False, description="Error message", example="Invalid structure"
+    )
+    pxhttp_session = fields.Str(
+        required=False, description="Session identifier in px-over-http protocol"
     )

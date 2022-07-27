@@ -15,6 +15,7 @@ from typing import Mapping, Sequence, Tuple
 
 from ....admin.request_context import AdminRequestContext
 from ....connections.models.conn_record import ConnRecord
+from ....connections.models.connection_target import ConnectionTarget
 from ....indy.holder import IndyHolder, IndyHolderError
 from ....indy.models.cred_precis import IndyCredPrecisSchema
 from ....indy.models.proof import IndyPresSpecSchema
@@ -38,6 +39,10 @@ from ....storage.vc_holder.vc_record import VCRecord
 from ....utils.tracing import trace_event, get_timer, AdminAPIMessageTracingSchema
 from ....vc.ld_proofs import BbsBlsSignature2020, Ed25519Signature2018
 from ....wallet.error import WalletNotFoundError
+
+from ...px_over_http.v0_1.manager import PXHTTPManager
+from ...px_over_http.v0_1.message_types import ARIES_PROTOCOL as PXHTTP_PROTO
+from ...px_over_http.v0_1.messages.auth_response import AuthResponse
 
 from ..dif.pres_exch import InputDescriptors, ClaimFormat, SchemaInputDescriptor
 from ..dif.pres_proposal_schema import DIFProofProposalSchema
@@ -1105,6 +1110,7 @@ async def present_proof_send_presentation(request: web.BaseRequest):
         )
 
     pres_manager = V20PresManager(profile)
+    protocol = conn_record.connection_protocol
     try:
         request_data = {fmt: body.get(fmt)}
         pres_ex_record, pres_message = await pres_manager.create_pres(
@@ -1123,20 +1129,56 @@ async def present_proof_send_presentation(request: web.BaseRequest):
     ) as err:
         async with profile.session() as session:
             await pres_ex_record.save_error_state(session, reason=err.roll_up)
-        # other party cares that we cannot continue protocol
-        await report_problem(
-            err,
-            ProblemReportReason.ABANDONED.value,
-            web.HTTPBadRequest,
-            pres_ex_record,
-            outbound_handler,
+        if protocol == PXHTTP_PROTO:
+            # no message to other party
+            raise web.HTTPBadRequest(reason=err.roll_up)
+        else:
+            # other party cares that we cannot continue protocol
+            await report_problem(
+                err,
+                ProblemReportReason.ABANDONED.value,
+                web.HTTPBadRequest,
+                pres_ex_record,
+                outbound_handler,
+            )
+    target = None
+    if protocol == PXHTTP_PROTO:
+        pxhttp_mgr = PXHTTPManager(profile)
+        pres_message = pxhttp_mgr.create_response(
+            pres=pres_message, session=pres_ex_record.pxhttp_session
         )
+        async with profile.session() as session:
+            try:
+                invitation = await conn_record.retrieve_invitation(session)
+            except StorageNotFoundError as err:
+                raise web.HTTPBadRequest(reason=err.roll_up)
+
+        # not checking for None as already done during receive_invitation
+        pxhttp_endpoint = PXHTTPManager.get_endpoint_from_invitation(invitation)
+        target = ConnectionTarget(endpoint=pxhttp_endpoint)
+
     trace_msg = body.get("trace")
     pres_message.assign_trace_decorator(
         context.settings,
         trace_msg,
     )
-    await outbound_handler(pres_message, connection_id=pres_ex_record.connection_id)
+
+    # transform response to string so responder does not add
+    # DIDComm parameters via Schema.dump
+    if isinstance(pres_message, AuthResponse):
+        pres_message = json.dumps(
+            {
+                "id_token": pres_message.id_token,
+                "session": pres_message.session,
+            }
+        )
+
+    await outbound_handler(
+        pres_message,
+        connection_id=pres_ex_record.connection_id,
+        protocol=protocol,
+        target=target,
+    )
 
     trace_event(
         context.settings,

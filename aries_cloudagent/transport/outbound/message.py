@@ -22,6 +22,7 @@ class OutboundMessage:
         target: ConnectionTarget = None,
         target_list: Sequence[ConnectionTarget] = None,
         to_session_only: bool = False,
+        protocol: str = None,
     ):
         """Initialize an outgoing message."""
         self.connection_id = connection_id
@@ -35,6 +36,7 @@ class OutboundMessage:
         self.target = target
         self.target_list = list(target_list) if target_list else []
         self.to_session_only = to_session_only
+        self.protocol = protocol
 
     def __repr__(self) -> str:
         """

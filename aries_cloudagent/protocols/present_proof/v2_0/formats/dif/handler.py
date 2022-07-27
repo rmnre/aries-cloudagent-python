@@ -7,8 +7,12 @@ from marshmallow import RAISE
 from typing import Mapping, Tuple, Sequence
 from uuid import uuid4
 
+from ......connections.models.conn_record import ConnRecord
 from ......messaging.base_handler import BaseResponder
-from ......messaging.decorators.attach_decorator import AttachDecorator
+from ......messaging.decorators.attach_decorator import (
+    AttachDecorator,
+    AttachDecoratorData,
+)
 from ......storage.error import StorageNotFoundError
 from ......storage.vc_holder.base import VCHolder
 from ......storage.vc_holder.vc_record import VCRecord
@@ -24,6 +28,7 @@ from ......wallet.base import BaseWallet
 from ......wallet.key_type import KeyType
 
 from .....problem_report.v1_0.message import ProblemReport
+from .....px_over_http.v0_1.message_types import ARIES_PROTOCOL as PXHTTP_PROTO
 
 from ....dif.pres_exch import PresentationDefinition, SchemaInputDescriptor
 from ....dif.pres_exch_handler import DIFPresExchHandler, DIFPresExchError
@@ -104,8 +109,12 @@ class DIFPresFormatHandler(V20PresFormatHandler):
         # Get schema class
         Schema = mapping[message_type]
 
-        # Validate, throw if not valid
-        Schema(unknown=RAISE).load(attachment_data)
+        # TODO: find a better solution for validation of jwt_vp
+        if message_type == PRES_20 and "vp" in attachment_data:
+            Schema(unknown=RAISE).load(attachment_data["vp"])
+        else:
+            # Validate, throw if not valid
+            Schema(unknown=RAISE).load(attachment_data)
 
     def get_format_identifier(self, message_type: str) -> str:
         """Get attachment format identifier for format and message combination.
@@ -123,13 +132,23 @@ class DIFPresFormatHandler(V20PresFormatHandler):
         self, message_type: str, data: dict
     ) -> Tuple[V20PresFormat, AttachDecorator]:
         """Get presentation format and attach objects for use in pres_ex messages."""
-
+        # TODO: explicit signal needed to determine if jwt_vp is used?
+        if data.get("base64"):
+            attach_decorator = AttachDecorator(
+                ident=DIFPresFormatHandler.format.api,
+                mime_type="application/json",
+                data=AttachDecoratorData.deserialize(data),
+            )
+        else:
+            attach_decorator = AttachDecorator.data_json(
+                data, ident=DIFPresFormatHandler.format.api
+            )
         return (
             V20PresFormat(
                 attach_id=DIFPresFormatHandler.format.api,
                 format_=self.get_format_identifier(message_type),
             ),
-            AttachDecorator.data_json(data, ident=DIFPresFormatHandler.format.api),
+            attach_decorator,
         )
 
     async def create_bound_request(
@@ -177,6 +196,7 @@ class DIFPresFormatHandler(V20PresFormatHandler):
             DIFPresFormatHandler.format
         )
         pres_definition = None
+        issuer_id = None
         limit_record_ids = None
         reveal_doc_frame = None
         challenge = None
@@ -196,7 +216,6 @@ class DIFPresFormatHandler(V20PresFormatHandler):
             pres_definition = PresentationDefinition.deserialize(
                 proof_request.get("presentation_definition")
             )
-            issuer_id = None
         if not challenge:
             challenge = str(uuid4())
 
@@ -306,9 +325,58 @@ class DIFPresFormatHandler(V20PresFormatHandler):
                                             BbsBlsSignature2020.signature_type
                                         )
                                         break
+                    elif claim_fmt.jwt_vp:
+                        if "alg" in claim_fmt.jwt_vp:
+                            algs = claim_fmt.jwt_vp["alg"]
+                            if "EdDSA" not in algs:
+                                raise V20PresFormatHandlerError(
+                                    "Currently, EdDSA is the only supported "
+                                    "algorithm for creating a jwt_vp."
+                                )
+                            dif_handler_proof_type = Ed25519Signature2018.signature_type
+                        else:
+                            raise V20PresFormatHandlerError(
+                                "Parameter 'alg' must be provided "
+                                "when requesting a a jwt_vp."
+                            )
+                        if claim_fmt.ldp_vc:
+                            if "proof_type" in claim_fmt.ldp_vc:
+                                proof_types = claim_fmt.ldp_vc.get("proof_type")
+                                if limit_disclosure and (
+                                    BbsBlsSignature2020.signature_type
+                                    not in proof_types
+                                ):
+                                    raise V20PresFormatHandlerError(
+                                        "Verifier submitted presentation request with "
+                                        "limit_disclosure [selective disclosure] "
+                                        "option but verifier does not support "
+                                        "BbsBlsSignature2020 format"
+                                    )
+                                elif (
+                                    BbsBlsSignature2020.signature_type
+                                    not in proof_types
+                                    and Ed25519Signature2018.signature_type
+                                    not in proof_types
+                                ):
+                                    raise V20PresFormatHandlerError(
+                                        "Only BbsBlsSignature2020 and/or "
+                                        "Ed25519Signature2018 signature types "
+                                        "are supported"
+                                    )
+                                else:
+                                    proof_type = proof_types
+                            else:
+                                proof_type = [
+                                    BbsBlsSignature2020.signature_type,
+                                    Ed25519Signature2018.signature_type,
+                                ]
+                        elif claim_fmt.jwt_vc:
+                            raise V20PresFormatHandlerError(
+                                "Currently, only ldp_vc can be " "included in a jwt_vp."
+                            )
                     else:
                         raise V20PresFormatHandlerError(
-                            "Currently, only ldp_vp with "
+                            "Currently, only ldp_vp and/or jwt_vp with "
                             "BbsBlsSignature2020 and Ed25519Signature2018"
                             " signature types are supported"
                         )
@@ -348,6 +416,16 @@ class DIFPresFormatHandler(V20PresFormatHandler):
             raise V20PresFormatHandlerError(err)
         except TypeError as err:
             LOGGER.error(str(err))
+            try:
+                async with self.profile.session() as session:
+                    conn_rec = await ConnRecord.retrieve_by_id(
+                        session, pres_ex_record.connection_id
+                    )
+                # do not send problem report if protocol is px-over-http
+                if conn_rec.connection_protocol == PXHTTP_PROTO:
+                    return
+            except StorageNotFoundError as err:
+                raise V20PresFormatHandlerError(err)
             responder = self._profile.inject_or(BaseResponder)
             if responder:
                 report = ProblemReport(

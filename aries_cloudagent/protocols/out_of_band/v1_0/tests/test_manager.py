@@ -814,6 +814,22 @@ class TestOOBManager(AsyncTestCase, TestConfig):
                 )
                 assert service["serviceEndpoint"] == self.test_mediator_endpoint
 
+    async def test_create_invitation_pxhttp(self):
+        invi_rec = await self.manager.create_invitation(
+            my_endpoint=TestConfig.test_endpoint,
+            public=False,
+            hs_protos=[HSProto.RFC999],
+        )
+
+        assert (
+            DIDCommPrefix.qualify_current(HSProto.RFC999.name)
+            in invi_rec.invitation.handshake_protocols
+        )
+        service: dict = invi_rec._invitation.ser["services"][0]
+        assert service["id"] == TestConfig.test_endpoint
+        assert service["type"] == "pxhttp-communication"
+        assert service.get("recipientKeys") == None
+
     async def test_create_invitation_metadata_assigned(self):
         async with self.profile.session() as session:
             invi_rec = await self.manager.create_invitation(

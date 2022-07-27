@@ -25,6 +25,10 @@ from .....wallet.util import bytes_to_b64, b64_to_bytes
 from ....didcomm_prefix import DIDCommPrefix
 from ....didexchange.v1_0.message_types import ARIES_PROTOCOL as DIDX_PROTO
 from ....connections.v1_0.message_types import ARIES_PROTOCOL as CONN_PROTO
+from ....px_over_http.v0_1.message_types import (
+    ARIES_PROTOCOL as PXHTTP_PROTO,
+    PROTOCOL_PREFIX_URI as PXHTTP_PROTO_PREFIX,
+)
 
 from ..message_types import INVITATION, DEFAULT_VERSION
 
@@ -45,6 +49,18 @@ class HSProto(Enum):
         23,
         DIDX_PROTO,
         {"didexchange", "didx", "didex", "rfc23", "23", "new"},
+    )
+    # TODO: replace dummy RFC & names
+    RFC999 = HSProtoSpec(
+        999,
+        PXHTTP_PROTO,
+        {
+            "px-over-http",
+            "pxhttp",
+            "pxh",
+            "rfc999",
+            "999",
+        },
     )
 
     @classmethod
@@ -213,7 +229,8 @@ class InvitationMessageSchema(AgentMessageSchema):
             description="Handshake protocol",
             example=DIDCommPrefix.qualify_current(HSProto.RFC23.name),
             validate=lambda hsp: (
-                DIDCommPrefix.unqualify(hsp) in [p.name for p in HSProto]
+                (DIDCommPrefix.unqualify(hsp) in [p.name for p in HSProto])
+                or hsp == f"{PXHTTP_PROTO_PREFIX}/{HSProto.RFC999.name}"
             ),
         ),
         required=False,

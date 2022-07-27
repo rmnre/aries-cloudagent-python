@@ -45,14 +45,27 @@ class AttachDecoratorDataJWSHeader(BaseModel):
 
         schema_class = "AttachDecoratorDataJWSHeaderSchema"
 
-    def __init__(self, kid: str):
+    def __init__(
+        self,
+        kid: str,
+        *,
+        alg: str = None,
+        typ: str = None,
+    ):
         """Initialize JWS header to include in attach decorator data."""
         self.kid = kid
+        self.alg = alg
+        self.typ = typ
 
     def __eq__(self, other: Any):
         """Compare equality with another."""
 
-        return type(self) == type(other) and self.kid == other.kid
+        return (
+            type(self) == type(other)
+            and self.kid == other.kid
+            and self.alg == other.alg
+            and self.typ == other.typ
+        )
 
 
 class AttachDecoratorDataJWSHeaderSchema(BaseModelSchema):
@@ -69,6 +82,8 @@ class AttachDecoratorDataJWSHeaderSchema(BaseModelSchema):
         required=True,
         **JWS_HEADER_KID,
     )
+    alg = fields.Str(description="Algorithm identifier", required=False)
+    typ = fields.Str(required=False)
 
 
 class AttachDecoratorData1JWS(BaseModel):

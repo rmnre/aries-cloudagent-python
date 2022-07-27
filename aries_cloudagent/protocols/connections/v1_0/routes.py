@@ -15,6 +15,7 @@ from marshmallow import fields, validate, validates_schema
 
 from ....admin.request_context import AdminRequestContext
 from ....connections.models.conn_record import ConnRecord, ConnRecordSchema
+from ....connections.models.connection_target import ConnectionTarget
 from ....messaging.models.base import BaseModelError
 from ....messaging.models.openapi import OpenAPISchema
 from ....messaging.valid import (
@@ -23,8 +24,12 @@ from ....messaging.valid import (
     INDY_RAW_PUBLIC_KEY,
     UUIDFour,
 )
+from ...out_of_band.v1_0.messages.invitation import InvitationMessage as OOBInvitation
 from ....storage.error import StorageError, StorageNotFoundError
 from ....wallet.error import WalletError
+
+from ...px_over_http.v0_1.manager import PXHTTPManager, PXHTTPManagerError
+from ...px_over_http.v0_1.message_types import ARIES_PROTOCOL as PXHTTP_PROTO
 
 from .manager import ConnectionManager, ConnectionManagerError
 from .message_types import SPEC_URI
@@ -619,20 +624,51 @@ async def connections_accept_invitation(request: web.BaseRequest):
     try:
         async with profile.session() as session:
             connection = await ConnRecord.retrieve_by_id(session, connection_id)
-        connection_mgr = ConnectionManager(profile)
         my_label = request.query.get("my_label")
-        my_endpoint = request.query.get("my_endpoint")
         mediation_id = request.query.get("mediation_id")
+        protocol = connection.connection_protocol
+        target = None
 
-        try:
-            request = await connection_mgr.create_request(
-                connection, my_label, my_endpoint, mediation_id=mediation_id
+        if protocol == PXHTTP_PROTO:
+            pxhttp_mgr = PXHTTPManager(profile)
+            async with profile.session() as session:
+                invitation: OOBInvitation = await connection.retrieve_invitation(
+                    session
+                )
+            target = ConnectionTarget(
+                # not checking for None as already done in receive_invitation
+                endpoint=PXHTTPManager.get_endpoint_from_invitation(invitation)
             )
-        except StorageError as err:
-            # Handle storage errors (including not found errors) from
-            # create_request separately as these errors represent a bad request
-            # rather than a bad url
-            raise web.HTTPBadRequest(reason=err.roll_up) from err
+            try:
+                invitation_response = await pxhttp_mgr.create_invitation_response(
+                    connection, my_label, mediation_id=mediation_id
+                )
+                # transform request to string so responder does not add
+                # DIDComm parameters via Schema.dump
+                request = json.dumps(
+                    {"invitation_msg_id": invitation_response.invitation_msg_id}
+                )
+            except PXHTTPManagerError as err:
+                raise web.HTTPBadRequest(reason=err.roll_up) from err
+        else:
+            connection_mgr = ConnectionManager(profile)
+            my_endpoint = request.query.get("my_endpoint")
+            try:
+                request = await connection_mgr.create_request(
+                    connection, my_label, my_endpoint, mediation_id=mediation_id
+                )
+            except StorageError as err:
+                # Handle storage errors (including not found errors) from
+                # create_request separately as these errors represent a bad request
+                # rather than a bad url
+                raise web.HTTPBadRequest(reason=err.roll_up) from err
+
+        await outbound_handler(
+            request,
+            connection_id=connection.connection_id,
+            protocol=protocol,
+            target=target,
+        )
 
         result = connection.serialize()
     except StorageNotFoundError as err:
@@ -640,7 +676,6 @@ async def connections_accept_invitation(request: web.BaseRequest):
     except (StorageError, WalletError, ConnectionManagerError, BaseModelError) as err:
         raise web.HTTPBadRequest(reason=err.roll_up) from err
 
-    await outbound_handler(request, connection_id=connection.connection_id)
     return web.json_response(result)
 
 

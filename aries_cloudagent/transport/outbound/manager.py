@@ -507,7 +507,8 @@ class OutboundTransportManager:
                 queued.payload,
                 queued.endpoint,
                 queued.metadata,
-                queued.api_key,
+                protocol=queued.message.protocol,
+                api_key=queued.api_key,
             ),
             lambda completed: self.finished_deliver(queued, completed),
         )

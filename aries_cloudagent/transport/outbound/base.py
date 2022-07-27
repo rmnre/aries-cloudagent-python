@@ -69,6 +69,7 @@ class BaseOutboundTransport(ABC):
         payload: Union[str, bytes],
         endpoint: str,
         metadata: dict = None,
+        protocol: str = None,
     ):
         """
         Handle message.
@@ -78,6 +79,7 @@ class BaseOutboundTransport(ABC):
             payload: message payload in string or byte format
             endpoint: URI endpoint for delivery
             metadata: Additional metadata associated with the payload
+            protocol: protocol used for message delivery
         """
 
 

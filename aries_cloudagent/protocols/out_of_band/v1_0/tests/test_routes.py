@@ -126,6 +126,41 @@ class TestOutOfBandRoutes(AsyncTestCase):
                 await test_module.invitation_create(self.request)
             mock_json_response.assert_not_called()
 
+    async def test_invitation_create_pxhttp(self):
+        # TODO: replace dummy RFC
+        self.request.query = {
+            "multi_use": "false",
+            "auto_accept": "false",
+        }
+        body = {
+            "handshake_protocols": [test_module.HSProto.RFC999.name],
+            "use_public_did": False,
+        }
+        self.request.json = async_mock.CoroutineMock(return_value=body)
+        with async_mock.patch.object(
+            test_module, "OutOfBandManager", autospec=True
+        ) as mock_oob_mgr, async_mock.patch.object(
+            test_module.web, "json_response", async_mock.Mock()
+        ) as mock_json_response:
+            mock_oob_mgr.return_value.create_invitation = async_mock.CoroutineMock(
+                return_value=async_mock.MagicMock(
+                    serialize=async_mock.MagicMock(return_value={"abc": "123"})
+                )
+            )
+            result = await test_module.invitation_create(self.request)
+            mock_oob_mgr.return_value.create_invitation.assert_called_once_with(
+                my_label=None,
+                auto_accept=False,
+                public=False,
+                multi_use=False,
+                hs_protos=[test_module.HSProto.RFC999],
+                attachments=None,
+                metadata=None,
+                alias=None,
+                mediation_id=None,
+            )
+            mock_json_response.assert_called_once_with({"abc": "123"})
+
     async def test_invitation_receive(self):
         self.request.json = async_mock.CoroutineMock()
         expected_connection_record = ConnRecord(connection_id="some-id")

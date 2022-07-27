@@ -48,6 +48,7 @@ class BaseResponder(ABC):
         target: ConnectionTarget = None,
         target_list: Sequence[ConnectionTarget] = None,
         to_session_only: bool = False,
+        protocol: str = None,
     ) -> OutboundMessage:
         """Create an OutboundMessage from a message payload."""
         if isinstance(message, BaseMessage):
@@ -72,6 +73,7 @@ class BaseResponder(ABC):
             target=target,
             target_list=target_list,
             to_session_only=to_session_only,
+            protocol=protocol,
         )
 
     async def send(
@@ -88,6 +90,7 @@ class BaseResponder(ABC):
         connection_id: str = None,
         target: ConnectionTarget = None,
         target_list: Sequence[ConnectionTarget] = None,
+        protocol: str = None,
     ) -> OutboundSendStatus:
         """
         Send a reply to an incoming message.
@@ -96,6 +99,7 @@ class BaseResponder(ABC):
             message: the `BaseMessage`, or pre-packed str or bytes to reply with
             connection_id: optionally override the target connection ID
             target: optionally specify a `ConnectionTarget` to send to
+            protocol: optionally specify protocol
 
         Raises:
             ResponderError: If there is no active connection
@@ -108,6 +112,7 @@ class BaseResponder(ABC):
             reply_to_verkey=self.reply_to_verkey,
             target=target,
             target_list=target_list,
+            protocol=protocol,
         )
         return await self.send_outbound(outbound)
 
