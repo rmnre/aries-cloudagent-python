@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 from ...connections.models.connection_target import ConnectionTarget
 from ...core.profile import Profile
+from ...protocols.oid4vp.v0_1.message_types import ARIES_PROTOCOL as OID4VP_PROTO
 from ...utils.classloader import ClassLoader, ModuleLoadError, ClassNotFoundError
 from ...utils.stats import Collector
 from ...utils.task_queue import CompletedTask, TaskQueue, task_exc_info
@@ -507,7 +508,7 @@ class OutboundTransportManager:
                 queued.payload,
                 queued.endpoint,
                 queued.metadata,
-                protocol=queued.message.protocol,
+                protocol=queued.message.protocol if queued.message else None,
                 api_key=queued.api_key,
             ),
             lambda completed: self.finished_deliver(queued, completed),
@@ -520,13 +521,19 @@ class OutboundTransportManager:
             queued.error = completed.exc_info
 
             if queued.retries:
+                request_method = (
+                    "GETing"
+                    if queued.message and queued.message.protocol == OID4VP_PROTO
+                    else "posting to"
+                )
                 if LOGGER.isEnabledFor(logging.DEBUG):
                     LOGGER.error(
                         (
-                            ">>> Error when posting to: %s; "
+                            ">>> Error when %s: %s; "
                             "Error: %s; "
                             "Payload: %s; Re-queue failed message ..."
                         ),
+                        request_method,
                         queued.endpoint,
                         queued.error,
                         queued.payload,
@@ -534,9 +541,10 @@ class OutboundTransportManager:
                 else:
                     LOGGER.error(
                         (
-                            ">>> Error when posting to: %s; "
+                            ">>> Error when %s: %s; "
                             "Error: %s; Re-queue failed message ..."
                         ),
+                        request_method,
                         queued.endpoint,
                         queued.error,
                     )

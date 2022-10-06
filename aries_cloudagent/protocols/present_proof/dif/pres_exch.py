@@ -814,11 +814,13 @@ class InputDescriptorMapping(BaseModel):
         id: str = None,
         fmt: str = None,
         path: str = None,
+        path_nested: "InputDescriptorMapping" = None,
     ):
         """Initialize InputDescriptorMapping."""
         self.id = id
         self.fmt = fmt
         self.path = path
+        self.path_nested = path_nested
 
 
 class InputDescriptorMappingSchema(BaseModelSchema):
@@ -843,6 +845,14 @@ class InputDescriptorMappingSchema(BaseModelSchema):
     path = fields.Str(
         description="Path",
         required=False,
+    )
+    path_nested = fields.Nested(
+        lambda: InputDescriptorMappingSchema(),
+        required=False,
+        description=(
+            "Object indicating the presence of "
+            "a multi-Claim envelope format (optional)."
+        ),
     )
 
 

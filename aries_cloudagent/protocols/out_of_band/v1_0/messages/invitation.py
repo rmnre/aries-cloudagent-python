@@ -25,6 +25,7 @@ from .....wallet.util import bytes_to_b64, b64_to_bytes
 from ....didcomm_prefix import DIDCommPrefix
 from ....didexchange.v1_0.message_types import ARIES_PROTOCOL as DIDX_PROTO
 from ....connections.v1_0.message_types import ARIES_PROTOCOL as CONN_PROTO
+from ....oid4vp.v0_1.message_types import HANDSHAKE_PROTOCOL as OID4VP_HS_PROTO
 from ....px_over_http.v0_1.message_types import (
     ARIES_PROTOCOL as PXHTTP_PROTO,
     PROTOCOL_PREFIX_URI as PXHTTP_PROTO_PREFIX,
@@ -60,6 +61,17 @@ class HSProto(Enum):
             "pxh",
             "rfc999",
             "999",
+        },
+    )
+    OID4VP_HS = HSProtoSpec(
+        888,
+        OID4VP_HS_PROTO,
+        {
+            "oid4vp-handshake",
+            "oid4vp-hs",
+            "oid4vp",
+            "rfc888",
+            "888",
         },
     )
 
@@ -231,6 +243,7 @@ class InvitationMessageSchema(AgentMessageSchema):
             validate=lambda hsp: (
                 (DIDCommPrefix.unqualify(hsp) in [p.name for p in HSProto])
                 or hsp == f"{PXHTTP_PROTO_PREFIX}/{HSProto.RFC999.name}"
+                or hsp == f"{PXHTTP_PROTO_PREFIX}/{HSProto.OID4VP_HS.name}"
             ),
         ),
         required=False,

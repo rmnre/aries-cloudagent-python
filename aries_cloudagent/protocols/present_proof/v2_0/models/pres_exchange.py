@@ -69,6 +69,7 @@ class V20PresExRecord(BaseExchangeRecord):
         trace: bool = False,  # backward compat: BaseRecord.FromStorage()
         by_format: Mapping = None,  # backward compat: BaseRecord.FromStorage()
         pxhttp_session: str = None,
+        oid4vp_id: str = None,
         **kwargs,
     ):
         """Initialize a new PresExRecord."""
@@ -87,6 +88,7 @@ class V20PresExRecord(BaseExchangeRecord):
         self.auto_verify = auto_verify
         self.error_msg = error_msg
         self.pxhttp_session = pxhttp_session
+        self.oid4vp_id = oid4vp_id
 
     @property
     def pres_ex_id(self) -> str:
@@ -201,6 +203,7 @@ class V20PresExRecord(BaseExchangeRecord):
                     "error_msg",
                     "trace",
                     "pxhttp_session",
+                    "oid4vp_id",
                 )
             },
             **{
@@ -333,4 +336,9 @@ class V20PresExRecordSchema(BaseExchangeSchema):
     )
     pxhttp_session = fields.Str(
         required=False, description="Session identifier in px-over-http protocol"
+    )
+    oid4vp_id = fields.Str(
+        required=False,
+        description="OID4VP record identifier",
+        example=UUIDFour.EXAMPLE,
     )

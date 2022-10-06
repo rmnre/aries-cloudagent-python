@@ -24,6 +24,7 @@ from ...protocols.didcomm_prefix import DIDCommPrefix
 from ...protocols.didexchange.v1_0.messages.request import DIDXRequest
 from ...protocols.didexchange.v1_0.message_types import ARIES_PROTOCOL as DIDX_PROTO
 from ...protocols.px_over_http.v0_1.message_types import ARIES_PROTOCOL as PXHTTP_PROTO
+from ...protocols.oid4vp.v0_1.message_types import ARIES_PROTOCOL as OID4VP_PROTO
 from ...protocols.out_of_band.v1_0.messages.invitation import (
     InvitationMessage as OOBInvitation,
 )
@@ -47,6 +48,7 @@ class ConnRecord(BaseRecord):
         RFC_0023 = DIDX_PROTO
         # TODO: replace dummy RFC
         RFC_0999 = PXHTTP_PROTO
+        RFC_0888 = OID4VP_PROTO
 
         @classmethod
         def get(cls, label: Union[str, "ConnRecord.Protocol"]):

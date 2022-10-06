@@ -9,6 +9,10 @@ from typing import Union
 
 from ...core.profile import Profile
 from ...messaging.models.base import BaseModelError
+from ...protocols.oid4vp.v0_1.message_types import ARIES_PROTOCOL as OID4VP_PROTO
+from ...protocols.oid4vp.v0_1.messages.request_object import (
+    RequestObject as OID4VPRequestObject,
+)
 from ...protocols.px_over_http.v0_1.message_types import ARIES_PROTOCOL as PXHTTP_PROTO
 from ...protocols.px_over_http.v0_1.messages.auth_request import (
     AuthRequest as PXHTTPAuthRequest,
@@ -76,6 +80,10 @@ class HttpTransport(BaseOutboundTransport):
         """
         if protocol == PXHTTP_PROTO:
             return await self.handle_message_pxhttp(
+                profile, payload, endpoint, metadata, api_key
+            )
+        elif protocol == OID4VP_PROTO:
+            return await self.handle_message_oid4vp(
                 profile, payload, endpoint, metadata, api_key
             )
 
@@ -195,3 +203,110 @@ class HttpTransport(BaseOutboundTransport):
         self.logger.debug(
             "Received response to POST request as inbound message: %s", response
         )
+
+    async def handle_message_oid4vp(
+        self,
+        profile: Profile,
+        payload: Union[str, bytes],
+        endpoint: str,
+        metadata: dict = None,
+        api_key: str = None,
+    ):
+        """
+        Handle message from queue.
+
+        Args:
+            profile: the profile that produced the message
+            payload: message payload in string or byte format
+            endpoint: URI endpoint for delivery
+            metadata: Additional metadata associated with the payload
+        """
+        if not endpoint:
+            raise OutboundTransportError("No endpoint provided")
+        if not payload:
+            raise OutboundTransportError(
+                "No payload provided for oid4vp outbound message."
+            )
+        if isinstance(payload, bytes):
+            raise OutboundTransportError(
+                "Payload in byte format is not supported "
+                "for outgoing messages via oid4vp."
+            )
+        headers = metadata or {}
+        if api_key is not None:
+            headers["x-api-key"] = api_key
+        out_msg: dict = json.loads(payload)
+        in_msg = None
+
+        if "invitation_msg_id" in out_msg:
+            # get request object from request_uri
+            self.logger.debug("GET %s; Headers: %s", endpoint, headers)
+            async with self.client_session.get(endpoint, headers=headers) as resp:
+                if resp.status != 200:
+                    raise OutboundTransportError(
+                        (
+                            f"Unexpected response status {resp.status}, "
+                            f"caused by: {resp.reason}"
+                        )
+                    )
+
+                try:
+                    response = await resp.text()
+                except LookupError as err:
+                    raise OutboundTransportError(
+                        "Unknown text encoding used in HTTP response"
+                    ) from err
+
+            # construct protocol message
+            # add invitation_msg_id as reference to conn record
+            in_msg: OID4VPRequestObject = OID4VPRequestObject(
+                value=response, invitation_msg_id=out_msg["invitation_msg_id"]
+            )
+
+        else:
+            # TODO: only works for response_mode POST
+
+            # workaround for correct form-encoding of nested dict
+            for k, v in out_msg.items():
+                if isinstance(v, dict):
+                    out_msg[k] = json.dumps(v)
+
+            async with self.client_session.post(
+                endpoint, data=out_msg, headers=headers
+            ) as resp:
+                if resp.status != 200:
+                    raise OutboundTransportError(
+                        (
+                            f"Unexpected response status {resp.status}, "
+                            f"caused by: {resp.reason}"
+                        )
+                    )
+
+                if resp.content_type == "application/octet-stream":
+                    response = {}
+                else:
+                    try:
+                        response = await resp.json()
+                    except ContentTypeError as err:
+                        raise OutboundTransportError(
+                            "Expected JSON response but "
+                            f"content type was {resp.content_type}."
+                        ) from err
+                    except JSONDecodeError as err:
+                        raise OutboundTransportError(
+                            "Received response is not valid JSON."
+                        ) from err
+
+        if in_msg:
+            # pass message to inbound handler
+            inbound_mgr = profile.inject(InboundTransportManager)
+            session = await inbound_mgr.create_session(
+                transport_type=None,
+                wire_format=JsonWireFormat(),
+            )
+            async with session:
+                await session.receive(in_msg.to_json())
+
+            self.logger.debug(
+                "Received response to outbound request as inbound message: %s", response
+            )

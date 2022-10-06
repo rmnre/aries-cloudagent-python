@@ -14,7 +14,7 @@ from .....messaging.base_handler import (
 )
 from .....messaging.decorators.attach_decorator import AttachDecorator
 from .....messaging.models.base import BaseModelError
-from .....storage.error import StorageError, StorageNotFoundError
+from .....storage.error import StorageError, StorageNotFoundError, StorageDuplicateError
 from .....wallet.error import WalletNotFoundError
 
 from ....present_proof.v2_0.formats.handler import V20PresFormatHandlerError
@@ -69,7 +69,10 @@ class AuthRequestHandler(BaseHandler):
                 )
             conn_record.state = ConnRecord.State.COMPLETED.rfc23
             await conn_record.save(session, reason="Set connection state to completed")
-            invitation = await conn_record.retrieve_invitation(session)
+            try:
+                invitation = await conn_record.retrieve_invitation(session)
+            except (StorageNotFoundError, StorageDuplicateError) as e:
+                raise HandlerException(e.roll_up)
 
         # not checking for None as already done during receive_invitation
         pxhttp_endpoint = PXHTTPManager.get_endpoint_from_invitation(invitation)
@@ -148,11 +151,6 @@ class AuthRequestHandler(BaseHandler):
                         "session": auth_response.session,
                     }
                 )
-                async with profile.session() as session:
-                    invitation = await conn_record.retrieve_invitation(session)
-
-                # not checking for None as already done during receive_invitation
-                pxhttp_endpoint = PXHTTPManager.get_endpoint_from_invitation(invitation)
                 target = ConnectionTarget(endpoint=pxhttp_endpoint)
                 await responder.send_reply(reply, target=target, protocol=PXHTTP_PROTO)
             except (

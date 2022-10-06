@@ -30,6 +30,7 @@ from ...didcomm_prefix import DIDCommPrefix
 from ...didexchange.v1_0.manager import DIDXManager
 from ...issue_credential.v1_0.models.credential_exchange import V10CredentialExchange
 from ...issue_credential.v2_0.models.cred_ex_record import V20CredExRecord
+from ...oid4vp.v0_1.manager import OID4VPManager
 from ...present_proof.v1_0.models.presentation_exchange import V10PresentationExchange
 from ...present_proof.v2_0.models.pres_exchange import V20PresExRecord
 from ...px_over_http.v0_1.manager import PXHTTPManager
@@ -882,6 +883,16 @@ class OutOfBandManager(BaseConnectionManager):
             elif protocol is HSProto.RFC999:
                 pxhttp_mgr = PXHTTPManager(self.profile)
                 conn_record = await pxhttp_mgr.receive_invitation(
+                    invitation=invitation,
+                    their_public_did=public_did,
+                    auto_accept=auto_accept,
+                    alias=alias,
+                    mediation_id=mediation_id,
+                )
+                break
+            elif protocol is HSProto.OID4VP_HS:
+                oid4vp_mgr = OID4VPManager(self.profile)
+                conn_record = await oid4vp_mgr.receive_invitation(
                     invitation=invitation,
                     their_public_did=public_did,
                     auto_accept=auto_accept,

@@ -330,8 +330,6 @@ class PXHTTPManager(BaseConnectionManager):
                         conn_record.connection_id,
                     )
                     await conn_record.delete_record(session)
-                    conn_record.state = "deleted"
-                    await conn_record.emit_event(session)
                 else:
                     self._logger.error(
                         "Receiver indicated a problem during auth response transmission."

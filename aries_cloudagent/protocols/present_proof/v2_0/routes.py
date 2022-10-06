@@ -40,9 +40,15 @@ from ....utils.tracing import trace_event, get_timer, AdminAPIMessageTracingSche
 from ....vc.ld_proofs import BbsBlsSignature2020, Ed25519Signature2018
 from ....wallet.error import WalletNotFoundError
 
+from ...oid4vp.v0_1.manager import OID4VPManager
+from ...oid4vp.v0_1.message_types import ARIES_PROTOCOL as OID4VP_PROTO
+from ...oid4vp.v0_1.models.auth_response import AuthResponse as OID4VPAuthResponse
+from ...oid4vp.v0_1.models.oid4vp_record import OID4VPRecord
 from ...px_over_http.v0_1.manager import PXHTTPManager
 from ...px_over_http.v0_1.message_types import ARIES_PROTOCOL as PXHTTP_PROTO
-from ...px_over_http.v0_1.messages.auth_response import AuthResponse
+from ...px_over_http.v0_1.messages.auth_response import (
+    AuthResponse as PXHTTPAuthResponse,
+)
 
 from ..dif.pres_exch import InputDescriptors, ClaimFormat, SchemaInputDescriptor
 from ..dif.pres_proposal_schema import DIFProofProposalSchema
@@ -1129,7 +1135,7 @@ async def present_proof_send_presentation(request: web.BaseRequest):
     ) as err:
         async with profile.session() as session:
             await pres_ex_record.save_error_state(session, reason=err.roll_up)
-        if protocol == PXHTTP_PROTO:
+        if protocol in {PXHTTP_PROTO, OID4VP_PROTO}:
             # no message to other party
             raise web.HTTPBadRequest(reason=err.roll_up)
         else:
@@ -1156,22 +1162,37 @@ async def present_proof_send_presentation(request: web.BaseRequest):
         # not checking for None as already done during receive_invitation
         pxhttp_endpoint = PXHTTPManager.get_endpoint_from_invitation(invitation)
         target = ConnectionTarget(endpoint=pxhttp_endpoint)
-
-    trace_msg = body.get("trace")
-    pres_message.assign_trace_decorator(
-        context.settings,
-        trace_msg,
-    )
+    elif protocol == OID4VP_PROTO:
+        oid4vp_mgr = OID4VPManager(profile)
+        async with profile.session() as session:
+            oid4vp_record = await OID4VPRecord.retrieve_by_id(
+                session, pres_ex_record.oid4vp_id
+            )
+        if not oid4vp_record:
+            raise web.HTTPBadRequest(
+                reason=f"No oid4vp record found for id {pres_ex_record.oid4vp_id}"
+            )
+        pres_message = await oid4vp_mgr.create_response(oid4vp_record, pres_message)
+        # TODO: which uri to choose?
+        target = ConnectionTarget(endpoint=oid4vp_record.redirect_uri)
+    else:
+        trace_msg = body.get("trace")
+        pres_message.assign_trace_decorator(
+            context.settings,
+            trace_msg,
+        )
 
     # transform response to string so responder does not add
     # DIDComm parameters via Schema.dump
-    if isinstance(pres_message, AuthResponse):
+    if isinstance(pres_message, PXHTTPAuthResponse):
         pres_message = json.dumps(
             {
                 "id_token": pres_message.id_token,
                 "session": pres_message.session,
             }
         )
+    elif isinstance(pres_message, OID4VPAuthResponse):
+        pres_message = pres_message.to_json()
 
     await outbound_handler(
         pres_message,

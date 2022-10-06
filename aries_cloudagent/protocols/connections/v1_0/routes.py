@@ -28,6 +28,8 @@ from ...out_of_band.v1_0.messages.invitation import InvitationMessage as OOBInvi
 from ....storage.error import StorageError, StorageNotFoundError
 from ....wallet.error import WalletError
 
+from ...oid4vp.v0_1.manager import OID4VPManager
+from ...oid4vp.v0_1.message_types import ARIES_PROTOCOL as OID4VP_PROTO
 from ...px_over_http.v0_1.manager import PXHTTPManager, PXHTTPManagerError
 from ...px_over_http.v0_1.message_types import ARIES_PROTOCOL as PXHTTP_PROTO
 
@@ -626,9 +628,12 @@ async def connections_accept_invitation(request: web.BaseRequest):
             connection = await ConnRecord.retrieve_by_id(session, connection_id)
         my_label = request.query.get("my_label")
         mediation_id = request.query.get("mediation_id")
+        my_endpoint = request.query.get("my_endpoint")
         protocol = connection.connection_protocol
         target = None
 
+        # TODO: move logic to create_request in manager class for every protocol
+        # for uniform handling
         if protocol == PXHTTP_PROTO:
             pxhttp_mgr = PXHTTPManager(profile)
             async with profile.session() as session:
@@ -645,16 +650,28 @@ async def connections_accept_invitation(request: web.BaseRequest):
                 )
                 # transform request to string so responder does not add
                 # DIDComm parameters via Schema.dump
-                request = json.dumps(
+                msg = json.dumps(
                     {"invitation_msg_id": invitation_response.invitation_msg_id}
                 )
             except PXHTTPManagerError as err:
                 raise web.HTTPBadRequest(reason=err.roll_up) from err
+        elif protocol == OID4VP_PROTO:
+            connection_mgr = OID4VPManager(profile)
+            msg = await connection_mgr.create_request(
+                connection, my_label, my_endpoint, mediation_id=mediation_id
+            )
+            async with profile.session() as session:
+                invitation: OOBInvitation = await connection.retrieve_invitation(
+                    session
+                )
+            target = ConnectionTarget(
+                # not checking for None as already done in receive_invitation
+                endpoint=OID4VPManager.get_endpoint_from_invitation(invitation)
+            )
         else:
             connection_mgr = ConnectionManager(profile)
-            my_endpoint = request.query.get("my_endpoint")
             try:
-                request = await connection_mgr.create_request(
+                msg = await connection_mgr.create_request(
                     connection, my_label, my_endpoint, mediation_id=mediation_id
                 )
             except StorageError as err:
@@ -664,7 +681,7 @@ async def connections_accept_invitation(request: web.BaseRequest):
                 raise web.HTTPBadRequest(reason=err.roll_up) from err
 
         await outbound_handler(
-            request,
+            msg,
             connection_id=connection.connection_id,
             protocol=protocol,
             target=target,
