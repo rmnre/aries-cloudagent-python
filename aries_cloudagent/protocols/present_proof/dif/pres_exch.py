@@ -995,7 +995,6 @@ class DIFOptionsSchema(BaseModelSchema):
     challenge = fields.String(
         description="Challenge protect against replay attack",
         required=False,
-        **UUID4,
     )
     domain = fields.String(
         description="Domain protect against replay attack",
