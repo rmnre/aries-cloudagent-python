@@ -108,7 +108,7 @@ class ProtocolRegistry:
         for typeset in typesets:
             for msg_type_string, module_path in typeset.items():
                 updated_msg_type_string = re.sub(
-                    r"(\d+\.)?(\*|\d+)", to_check, msg_type_string
+                    r"(?<=/)(\d+\.)?(\*|\d+)(?=/)", to_check, msg_type_string
                 )
                 updated_typeset[updated_msg_type_string] = module_path
         return updated_typeset

@@ -86,7 +86,7 @@ async def validate_get_response_version(
 
 def get_version_from_message_type(msg_type: str) -> str:
     """Return version from provided message_type."""
-    return (re.search(r"(\d+\.)?(\*|\d+)", msg_type)).group()
+    return (re.search(r"(?<=/)(\d+\.)?(\*|\d+)(?=/)", msg_type)).group()
 
 
 def get_version_from_message(msg: AgentMessage) -> str:
